@@ -24,7 +24,6 @@ jobs:
         with:
           show-progress: false
           token: ${{ steps.app-token.outputs.token }}
-          ref: ${{ github.head_ref }}
 
       - name: Get current version
         id: current
