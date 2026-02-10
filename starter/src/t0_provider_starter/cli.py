@@ -1,6 +1,6 @@
 """CLI entry point for T-0 Provider project initialization.
 
-Invocation: pipx run t0-provider-init my_provider
+Invocation: uvx t0-provider-starter my_provider
 Go equivalent: provider-starter-go/main.go
 """
 

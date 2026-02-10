@@ -18,7 +18,7 @@ Repository = "https://github.com/t-0-network/provider-python"
 Homepage = "https://github.com/t-0-network/provider-python"
 
 [project.scripts]
-t0-provider-init = "t0_provider_starter.cli:main"
+t0-provider-starter = "t0_provider_starter.cli:main"
 
 [build-system]
 requires = ["hatchling"]

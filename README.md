@@ -3,7 +3,7 @@
 Python SDK and project initializer for building T-0 Network payment providers. The repository contains two packages:
 
 - **t0-provider-sdk** -- SDK providing ConnectRPC communication, secp256k1 cryptographic signing/verification, and ASGI middleware for signature validation.
-- **t0-provider-starter** -- CLI tool (`t0-provider-init`) that scaffolds a complete provider project with sensible defaults.
+- **t0-provider-starter** -- CLI tool that scaffolds a complete provider project with sensible defaults.
 
 ## Prerequisites
 
@@ -16,13 +16,13 @@ Python SDK and project initializer for building T-0 Network payment providers. T
 1. **Create a new provider project:**
 
    ```bash
-   pipx run t0-provider-init my_provider
+   uvx t0-provider-starter my_provider
    ```
 
    Alternative (install first, then run):
    ```bash
    pip install t0-provider-starter
-   t0-provider-init my_provider
+   t0-provider-starter my_provider
    ```
 
 2. **Install dependencies:**
@@ -47,7 +47,7 @@ Python SDK and project initializer for building T-0 Network payment providers. T
 ## CLI Options
 
 ```
-t0-provider-init <project_name> [-d <directory>]
+t0-provider-starter <project_name> [-d <directory>]
 ```
 
 | Argument / Option | Required | Default | Description |
@@ -296,22 +296,15 @@ Reference for porting changes from the Go SDK:
 
 See `docs/PITFALLS.md` for a comprehensive list of known issues and workarounds.
 
-### Publishing to PyPI
+### Releasing
 
-1. Update version in `sdk/pyproject.toml` and/or `starter/pyproject.toml`.
+Publishing is fully automated via GitHub Actions:
 
-2. Build the packages:
+1. Go to **Actions → Create Release → Run workflow** (or `gh workflow run "Create Release"`).
+2. The release workflow bumps the patch version in both `sdk/pyproject.toml` and `starter/pyproject.toml`, commits, tags, and creates a GitHub Release.
+3. The tag push triggers the **Publish Packages** workflow, which:
+   - Publishes `t0-provider-sdk` to PyPI (environment: `pypi-sdk`)
+   - Publishes `t0-provider-starter` to PyPI (environment: `pypi-starter`)
+   - Uploads wheels and sdists to the GitHub Release
 
-   ```bash
-   cd sdk && uv build && cd ..
-   cd starter && uv build && cd ..
-   ```
-
-3. Publish:
-
-   ```bash
-   cd sdk && uv publish && cd ..
-   cd starter && uv publish && cd ..
-   ```
-
-`t0-provider-sdk` must be published before `t0-provider-starter` if the version bump affects the SDK dependency (the starter's generated `pyproject.toml` depends on `t0-provider-sdk>=0.1.0`).
+PyPI authentication uses [Trusted Publishers](https://docs.pypi.org/trusted-publishers/) (OIDC) — no API tokens needed.

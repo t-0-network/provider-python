@@ -168,7 +168,7 @@ requires-python = ">=3.13"
 dependencies = ["coincurve>=21.0", "click>=8.1"]
 
 [project.scripts]
-t0-provider-init = "t0_provider_starter.cli:main"
+t0-provider-starter = "t0_provider_starter.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -602,7 +602,7 @@ Error hierarchy: `SignatureVerificationError` base, with `MissingRequiredHeaderE
 
 ### 7.1 `cli.py` - CLI Entry Point
 
-**Invocation:** `pipx run t0-provider-init my_provider`
+**Invocation:** `uvx t0-provider-starter my_provider`
 
 Workflow:
 1. Parse `project_name` argument (via `click`)
@@ -795,7 +795,7 @@ uv run pytest tests/cross_test/ -v
 ### Starter CLI Test
 ```bash
 # Test project generation
-pipx run --spec ./starter t0-provider-init test_project
+uvx --from ./starter t0-provider-starter test_project
 cd test_project && uv sync && uv run python -m provider.main
 ```
 

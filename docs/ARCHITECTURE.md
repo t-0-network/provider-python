@@ -538,11 +538,11 @@ buf generate      # Regenerate Python code into api/
 
 ### 3.9 Starter CLI and Template Architecture
 
-The `t0-provider-starter` package provides the `t0-provider-init` command that generates a complete, runnable provider project:
+The `t0-provider-starter` package provides the `t0-provider-starter` command that generates a complete, runnable provider project:
 
 ```bash
-pipx run t0-provider-init my_provider       # Create in ./my_provider/
-pipx run t0-provider-init my_provider -d .  # Create in current directory
+uvx t0-provider-starter my_provider       # Create in ./my_provider/
+uvx t0-provider-starter my_provider -d .  # Create in current directory
 ```
 
 **Generation workflow:**
@@ -850,7 +850,7 @@ api/
 #### 4.6.1 CLI Interface
 
 ```bash
-t0-provider-init <project_name> [-d <directory>]
+t0-provider-starter <project_name> [-d <directory>]
 ```
 
 | Argument/Option | Description |

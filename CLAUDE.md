@@ -85,8 +85,8 @@ Generated code is committed to the repository.
 ## Starter CLI
 
 ```bash
-pipx run t0-provider-init my_provider       # Create new project
-pipx run t0-provider-init my_provider -d .  # Create in current directory
+uvx t0-provider-starter my_provider       # Create new project
+uvx t0-provider-starter my_provider -d .  # Create in current directory
 ```
 
 The CLI generates a complete project with `.env` (private key auto-generated), `pyproject.toml`, `Dockerfile`, and provider service stubs.
@@ -165,7 +165,7 @@ TimestampOutOfRangeError, UnknownPublicKeyError, SignatureFailedError
 - `{{PROJECT_NAME}}` placeholder replaced during generation
 - Files with `.template` suffix have the suffix stripped (e.g., `pyproject.toml.template` → `pyproject.toml`)
 - `.env` created from `.env.example` with auto-generated private key
-- Template directory force-included in wheel via `[tool.hatch.build.targets.wheel.force-include]`
+- Template directory included in wheel via `artifacts = ["template/**"]` in hatch config
 
 ## Git Workflow
 
