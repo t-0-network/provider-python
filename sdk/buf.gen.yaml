@@ -1,0 +1,13 @@
+version: v2
+managed:
+  enabled: true
+  disable:
+    - module: buf.build/googleapis/googleapis
+    - module: buf.build/bufbuild/protovalidate
+plugins:
+  - protoc_builtin: python
+    out: src/t0_provider_sdk/api
+  - protoc_builtin: pyi
+    out: src/t0_provider_sdk/api
+  - local: protoc-gen-connect-python
+    out: src/t0_provider_sdk/api

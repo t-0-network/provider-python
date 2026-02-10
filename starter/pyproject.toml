@@ -1,0 +1,31 @@
+[project]
+name = "t0-provider-starter"
+version = "0.1.0"
+requires-python = ">=3.13"
+description = "T-0 Network Provider project initializer"
+license = "MIT"
+authors = [
+    { name = "T-0 Network" },
+]
+dependencies = [
+    "coincurve>=21.0",
+    "click>=8.1",
+    "python-dotenv>=1.0",
+]
+
+[project.urls]
+Repository = "https://github.com/t-0-network/provider-python"
+Homepage = "https://github.com/t-0-network/provider-python"
+
+[project.scripts]
+t0-provider-init = "t0_provider_starter.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/t0_provider_starter"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/t0_provider_starter/template" = "t0_provider_starter/template"

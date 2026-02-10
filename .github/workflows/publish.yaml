@@ -1,0 +1,79 @@
+name: Publish Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  publish-sdk-pypi:
+    runs-on: ubuntu-latest
+    environment: pypi-sdk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build SDK
+        run: cd sdk && uv build
+
+      - name: Publish SDK to PyPI
+        run: uv publish --trusted-publishing always sdk/dist/*
+
+  publish-starter-pypi:
+    runs-on: ubuntu-latest
+    environment: pypi-starter
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build Starter
+        run: cd starter && uv build
+
+      - name: Publish Starter to PyPI
+        run: uv publish --trusted-publishing always starter/dist/*
+
+  publish-github-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build packages
+        run: |
+          cd sdk && uv build && cd ..
+          cd starter && uv build && cd ..
+
+      - name: Upload assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release upload "$TAG" sdk/dist/* starter/dist/*
