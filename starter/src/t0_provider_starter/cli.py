@@ -12,8 +12,6 @@ from importlib import resources
 from pathlib import Path
 
 import click
-from dotenv import dotenv_values
-
 from t0_provider_starter.keygen import generate_keypair
 
 TEMPLATE_PLACEHOLDER = "{{PROJECT_NAME}}"
@@ -38,7 +36,7 @@ def main(project_name: str, directory: str | None) -> None:
     _copy_template(target_dir, project_name)
 
     # Write .env from .env.example
-    _write_env(target_dir, private_key)
+    _write_env(target_dir, private_key, public_key)
 
     # Print success
     click.echo(f"Initialized {project_name} in {target_dir}")
@@ -47,7 +45,7 @@ def main(project_name: str, directory: str | None) -> None:
     click.echo("Next steps:")
     click.echo(f"  cd {target_dir}")
     click.echo("  uv sync")
-    click.echo("  # Edit .env with your NETWORK_PUBLIC_KEY and TZERO_ENDPOINT")
+    click.echo("  # Share the generated public key from .env with the t-0 team")
     click.echo("  uv run python -m provider.main")
 
 
@@ -79,19 +77,18 @@ def _copy_tree(src: Path, dst: Path, project_name: str) -> None:
             dest_path.write_text(content)
 
 
-def _write_env(target_dir: Path, private_key: str) -> None:
+def _write_env(target_dir: Path, private_key: str, public_key: str) -> None:
     """Create .env from .env.example with generated keys."""
     env_example = target_dir / ".env.example"
     if not env_example.exists():
         return
 
-    values = dotenv_values(str(env_example))
-    values["PROVIDER_PRIVATE_KEY"] = private_key
+    content = env_example.read_text()
+    content = content.replace("your_private_key_here", private_key)
+    content = content.replace("# your_public_key_here", f"# {public_key}")
 
     env_path = target_dir / ".env"
-    with open(env_path, "w") as f:
-        for key, value in values.items():
-            f.write(f"{key}={value}\n")
+    env_path.write_text(content)
 
 
 if __name__ == "__main__":
