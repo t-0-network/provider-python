@@ -8,10 +8,19 @@ from t0_provider_sdk.provider.errors import (
     TimestampOutOfRangeError,
     UnknownPublicKeyError,
 )
-from t0_provider_sdk.provider.handler import BuildHandler, HandlerOption, handler, new_asgi_app
+from t0_provider_sdk.provider.handler import (
+    BuildHandler,
+    BuildHandlerSync,
+    HandlerOption,
+    handler,
+    handler_sync,
+    new_asgi_app,
+    new_wsgi_app,
+)
 
 __all__ = [
     "BuildHandler",
+    "BuildHandlerSync",
     "HandlerOption",
     "InvalidHeaderEncodingError",
     "MissingRequiredHeaderError",
@@ -20,5 +29,7 @@ __all__ = [
     "TimestampOutOfRangeError",
     "UnknownPublicKeyError",
     "handler",
+    "handler_sync",
     "new_asgi_app",
+    "new_wsgi_app",
 ]

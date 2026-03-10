@@ -118,7 +118,7 @@ graph TB
         C["crypto/<br/>Keccak-256, secp256k1<br/>signing & verification"]
         CM["common/<br/>HTTP header constants"]
         N["network/<br/>Client-side signing transport<br/>& generic client factory"]
-        PR["provider/<br/>Server-side ASGI middleware,<br/>interceptor & handler registration"]
+        PR["provider/<br/>Server-side ASGI/WSGI middleware,<br/>interceptor & handler registration"]
     end
 
     N --> C
@@ -135,7 +135,7 @@ graph TB
 | `crypto/` | Keccak-256 hashing, secp256k1 key management, ECDSA signing and verification |
 | `common/` | HTTP header name constants shared between client and server |
 | `network/` | Signing HTTP transport wrapper and generic ConnectRPC client factory |
-| `provider/` | ASGI signature verification middleware, ConnectRPC error interceptor, and generic handler registration |
+| `provider/` | ASGI/WSGI signature verification middleware, ConnectRPC error interceptor, and generic handler registration |
 
 ---
 
@@ -352,7 +352,7 @@ The server-side signature verification uses a **two-phase architecture** to brid
 ```mermaid
 sequenceDiagram
     participant Client
-    participant MW as ASGI Middleware<br/>(Phase 1)
+    participant MW as ASGI/WSGI Middleware<br/>(Phase 1)
     participant CV as contextvars
     participant INT as ConnectRPC Interceptor<br/>(Phase 2)
     participant H as Service Handler
@@ -383,12 +383,10 @@ sequenceDiagram
     end
 ```
 
-**Phase 1 -- ASGI Middleware:**
-- Intercepts the raw ASGI `receive` callable to buffer the entire request body
-- Parses and validates signature headers
-- Verifies the ECDSA signature against the raw body bytes
-- Stores any error in a `contextvars.ContextVar` (the Python equivalent of Go's `context.WithValue`)
-- Creates a synthetic `receive` that replays the buffered body to downstream middleware
+**Phase 1 -- ASGI/WSGI Middleware:**
+- **ASGI:** Intercepts the raw ASGI `receive` callable to buffer the entire request body; creates a synthetic `receive` that replays the buffered body downstream
+- **WSGI:** Reads raw body from `environ["wsgi.input"]`; replaces it with a `BytesIO` to replay body downstream
+- Both variants: parse and validate signature headers, verify the ECDSA signature against the raw body bytes, store any error in a `contextvars.ContextVar`
 
 **Phase 2 -- ConnectRPC Interceptor:**
 - Runs inside ConnectRPC's request pipeline, after Protobuf deserialization
@@ -396,7 +394,7 @@ sequenceDiagram
 - Raises a properly typed `ConnectError` with the appropriate status code
 - If no error is present, proceeds to the service handler
 
-The two phases communicate through `contextvars.ContextVar`, which is request-scoped in async Python (each ASGI request runs in its own coroutine context).
+The two phases communicate through `contextvars.ContextVar`, which is request-scoped in both async (each ASGI coroutine) and sync (each WSGI request thread) Python contexts.
 
 ### 3.4 Client-Side: Signing Transport
 
@@ -433,7 +431,7 @@ Both async (`SigningClient` wrapping `pyqwest.Client`) and sync (`SigningSyncCli
 
 The handler registration and client factory functions are **generic** -- they work with any generated ConnectRPC service without being tied to specific Protobuf definitions.
 
-**Server side:** The `handler()` function accepts any generated `ConnectASGIApplication` class and any object implementing the corresponding service Protocol. Multiple services can be registered and composed into a single ASGI application via `new_asgi_app()`.
+**Server side:** The `handler()` function accepts any generated `ConnectASGIApplication` class and any object implementing the corresponding service Protocol. Multiple services can be registered and composed into a single ASGI application via `new_asgi_app()`. For synchronous servers, `handler_sync()` accepts `ConnectWSGIApplication` classes and composes them via `new_wsgi_app()`.
 
 **Client side:** The `new_service_client()` function accepts any generated `ConnectClient` class and returns a fully configured instance with signing transport.
 
@@ -441,13 +439,20 @@ In Go, this genericity is achieved via generics (`Handler[T any]`, `NewServiceCl
 
 ```python
 # Works with ANY generated ConnectRPC service -- no SDK changes needed
+# Async (ASGI):
 app = new_asgi_app(
     network_public_key,
     handler(ProviderServiceASGIApplication, my_provider_impl),
     handler(AnotherServiceASGIApplication, my_other_impl),  # multiple services
 )
+# Sync (WSGI):
+app = new_wsgi_app(
+    network_public_key,
+    handler_sync(ProviderServiceWSGIApplication, my_sync_impl),
+)
 
-client = new_service_client(private_key, NetworkServiceClient)
+client = new_service_client(private_key, NetworkServiceClient)            # async
+client_sync = new_service_client_sync(private_key, NetworkServiceClientSync)  # sync
 ```
 
 ### 3.6 Error Hierarchy Design
@@ -506,7 +511,7 @@ The Python SDK is a faithful port of the Go SDK. Each Go module maps to a Python
 | `common/header.go` | `common/headers.py` | HTTP header constants |
 | `network/signing_transport.go` | `network/signing.py` | Signing HTTP wrapper |
 | `network/client.go` | `network/client.py` | Generic client factory |
-| `provider/verify_signature.go` | `provider/middleware.py` | ASGI signature verification |
+| `provider/verify_signature.go` | `provider/middleware.py` (ASGI), `provider/middleware_wsgi.py` (WSGI) | Signature verification |
 | `provider/signature_error.go` | `provider/interceptor.py` | Error-to-ConnectError conversion |
 | `provider/handler.go` | `provider/handler.py` | Handler registration |
 
@@ -723,9 +728,9 @@ All errors extend `SignatureVerificationError`. See [Section 3.6](#36-error-hier
 | `UnknownPublicKeyError` | -- | `"unknown public key"` |
 | `SignatureFailedError` | -- | `"signature verification failed"` |
 
-#### 4.4.2 `middleware.py` -- ASGI Signature Verification
+#### 4.4.2 `middleware.py` / `middleware_wsgi.py` -- Signature Verification
 
-The most complex module in the SDK. Implements Phase 1 of the [two-phase verification](#33-server-side-two-phase-verification).
+The most complex modules in the SDK. Implement Phase 1 of the [two-phase verification](#33-server-side-two-phase-verification). `middleware.py` handles ASGI, `middleware_wsgi.py` handles WSGI. Both share `_verify_request()` (the core verification logic is protocol-agnostic).
 
 **Key exports:**
 
@@ -734,6 +739,7 @@ The most complex module in the SDK. Implements Phase 1 of the [two-phase verific
 | `signature_error_var` | `ContextVar[SignatureVerificationError \| None]` | Communication channel to interceptor |
 | `VerifySignatureFn` | `dataclass` | Callable that verifies signature against network public key |
 | `signature_verification_middleware` | `function` | ASGI middleware factory |
+| `signature_verification_middleware_wsgi` | `function` | WSGI middleware factory (in `middleware_wsgi.py`) |
 
 **Constants:**
 
@@ -753,6 +759,13 @@ The most complex module in the SDK. Implements Phase 1 of the [two-phase verific
 3. Stores any error in `signature_error_var`
 4. Creates a synthetic `receive` via `_replay_receive()` to replay the buffered body
 5. Forwards to the downstream ASGI app
+
+**`signature_verification_middleware_wsgi(app, verify_fn, max_body_size)`** (in `middleware_wsgi.py`) returns a WSGI middleware that:
+1. Reads the full request body from `environ["wsgi.input"]` via `_read_wsgi_body()`
+2. Calls the same `_verify_request()` for header parsing and verification
+3. Stores any error in `signature_error_var`
+4. Replaces `environ["wsgi.input"]` with a `BytesIO` to replay the body
+5. Forwards to the downstream WSGI app
 
 **Internal helpers:**
 
@@ -783,20 +796,25 @@ Both interceptors call `_raise_if_signature_error()` which reads from `signature
 
 > **ConnectRPC Python specifics:** `Interceptor` is a **Union type**, not a base class. Async interceptors implement the `UnaryInterceptor` Protocol with `intercept_unary(self, call_next, request, ctx)`. Sync interceptors implement `UnaryInterceptorSync` with `intercept_unary_sync(self, call_next, request, ctx)`.
 
-#### 4.4.4 `handler.py` -- Handler Registration and ASGI Composition
+#### 4.4.4 `handler.py` -- Handler Registration and ASGI/WSGI Composition
 
-Provides the top-level API for registering service handlers and creating the composite ASGI application.
+Provides the top-level API for registering service handlers and creating composite ASGI or WSGI applications.
 
 **Key types:**
 
 ```python
 BuildHandler = Callable[[_HandlerOptions], tuple[str, ASGIApp]]
+BuildHandlerSync = Callable[[_HandlerOptions], tuple[str, WSGIApp]]
 HandlerOption = Callable[[_HandlerOptions], None]
 ```
 
 **`handler(asgi_app_factory, service_impl, *options) -> BuildHandler`**
 
-Registers a service handler. The `asgi_app_factory` is a generated ConnectRPC ASGI application class (e.g., `ProviderServiceASGIApplication`). The `service_impl` is the user's implementation of the service Protocol. Returns a `BuildHandler` callable that produces a `(path, app)` tuple when invoked.
+Registers an async service handler. The `asgi_app_factory` is a generated ConnectRPC ASGI application class (e.g., `ProviderServiceASGIApplication`). The `service_impl` is the user's implementation of the service Protocol. Returns a `BuildHandler` callable that produces a `(path, app)` tuple when invoked.
+
+**`handler_sync(wsgi_app_factory, service_impl, *options) -> BuildHandlerSync`**
+
+Registers a sync service handler. Parallel to `handler()` but accepts WSGI application classes (e.g., `ProviderServiceWSGIApplication`) and sync service implementations.
 
 **`new_asgi_app(network_public_key, *build_handlers) -> ASGIApp`**
 
@@ -806,7 +824,15 @@ Creates the composite ASGI application:
 3. Creates an ASGI path-prefix router via `_create_router()`
 4. Wraps the router with `signature_verification_middleware` (if `network_public_key` is non-empty)
 
-**`_create_router(routes)`** is a simple ASGI application that routes requests by path prefix. ConnectRPC request paths follow the pattern `/<package>.<Service>/<Method>`, so prefix matching on the service path correctly routes all methods of a service.
+**`new_wsgi_app(network_public_key, *build_handlers) -> WSGIApp`**
+
+Creates the composite WSGI application (parallel to `new_asgi_app()`):
+1. Creates `_HandlerOptions` with the `SignatureErrorInterceptorSync`
+2. Builds all registered handlers, collecting `(path, app)` pairs
+3. Creates a WSGI path-prefix router via `_create_wsgi_router()`
+4. Wraps the router with `signature_verification_middleware_wsgi` (if `network_public_key` is non-empty)
+
+Both routers use simple path-prefix matching. ConnectRPC request paths follow the pattern `/<package>.<Service>/<Method>`, so prefix matching on the service path correctly routes all methods of a service.
 
 Pass an empty string for `network_public_key` to disable signature verification (useful for testing).
 
@@ -864,9 +890,10 @@ The target directory must not exist or must be empty. The CLI generates a secp25
 
 The generated project is a complete, runnable application:
 
-- **`main.py`** -- Async entry point. Initializes the network client, creates the ASGI app with signature verification, starts background quote publishing, and runs the uvicorn ASGI server. Includes graceful shutdown via signal handlers.
+- **`main.py`** -- Async entry point. Initializes the network client, creates the ASGI app with signature verification, starts background quote publishing, and runs the uvicorn ASGI server. Includes commented-out WSGI alternative showing how to switch to `new_wsgi_app()` with gunicorn.
 - **`config.py`** -- Loads configuration from `.env`: `PROVIDER_PRIVATE_KEY`, `NETWORK_PUBLIC_KEY`, `TZERO_ENDPOINT`, `PORT`.
-- **`handler/payment.py`** -- `ProviderServiceImplementation` class with stub implementations for all 5 RPCs. Each method has TODO comments indicating what to implement, with numbered steps matching the integration guide.
+- **`handler/payment.py`** -- `ProviderServiceImplementation` (async) class with stub implementations for all 5 RPCs. Each method has TODO comments indicating what to implement.
+- **`handler/payment_sync.py`** -- `ProviderServiceSyncImplementation` (sync) class, parallel to `payment.py` but with regular `def` methods for use with WSGI servers.
 - **`publish_quotes.py`** -- Publishes sample pay-out and pay-in quotes every 5 seconds via `network_client.update_quote()`. Demonstrates quote bands with rates and amounts.
 - **`get_quote.py`** -- Requests a sample quote from the network. Demonstrates the `GetQuoteRequest` API.
 - **`Dockerfile`** -- Multi-stage build using `python:3.13-slim` with `uv` for fast dependency installation.
@@ -885,8 +912,10 @@ Tests are organized to mirror the SDK module structure under `sdk/tests/`:
 | `crypto/signer` | `test_signer.py` | 65-byte format, recovery byte range (0-1), sign-verify round-trip, cross-key |
 | `crypto/verifier` | `test_verifier.py` | 64/65-byte signatures, wrong key/digest, tampered signatures |
 | `network/signing` | `test_signing.py` | Header presence/format, signature verifiability, existing header preservation |
-| `provider/middleware` | `test_middleware.py` | All verification paths: valid, missing headers, invalid encoding, timestamp range, wrong key, bad signature, body size |
-| `integration` | `test_signature_verification.py` | End-to-end: sign via transport → verify via middleware, wrong key rejection, large body |
+| `provider/middleware` | `test_middleware.py` | All ASGI verification paths: valid, missing headers, invalid encoding, timestamp range, wrong key, bad signature, body size |
+| `provider/middleware_wsgi` | `test_middleware_wsgi.py` | All WSGI verification paths (mirrors ASGI tests) |
+| `integration` | `test_signature_verification.py` | End-to-end ASGI: sign via transport → verify via middleware, wrong key rejection, large body |
+| `integration` | `test_signature_verification_wsgi.py` | End-to-end WSGI: sign via transport → verify via WSGI middleware |
 
 Tests use shared test vectors from the Go SDK to ensure cross-language compatibility:
 - **Key pair 1:** Private `0x6b30303de7b26b...`, Public `0x044fa1465c087a...`
@@ -910,9 +939,11 @@ Located in `tests/cross_test/`, these tests validate interoperability between th
 - Python signs → Go verifies (via subprocess)
 - Go signs → Python verifies (65-byte and 64-byte signatures)
 
-**Server cross-tests** (`test_cross_server.py`):
-- Python client with signing transport → Go ProviderService server
-- Go client → Python ProviderService server with middleware
+**Server cross-tests** (`test_cross_server.py`, `test_cross_server_sync.py`):
+- Python async client → Go ProviderService server (ASGI)
+- Go client → Python ASGI ProviderService server
+- Python sync client → Go ProviderService server (WSGI)
+- Go client → Python WSGI ProviderService server
 
 #### 4.7.3 Running Tests
 
@@ -952,16 +983,24 @@ Commit the regenerated `api/` directory.
 
 1. Add the `.proto` file to `sdk/src/t0_provider_sdk/proto/`
 2. Run `buf generate` to create the generated code
-3. **Server side:** Implement the generated service Protocol, then register with `handler()`:
+3. **Server side (ASGI):** Implement the generated service Protocol, then register with `handler()`:
    ```python
    app = new_asgi_app(
        network_public_key,
        handler(NewServiceASGIApplication, my_implementation),
    )
    ```
+   **Server side (WSGI):** Use `handler_sync()` and `new_wsgi_app()` with the WSGI application class:
+   ```python
+   app = new_wsgi_app(
+       network_public_key,
+       handler_sync(NewServiceWSGIApplication, my_sync_implementation),
+   )
+   ```
 4. **Client side:** Create a signed client using the generated client class:
    ```python
-   client = new_service_client(private_key, NewServiceClient)
+   client = new_service_client(private_key, NewServiceClient)        # async
+   client = new_service_client_sync(private_key, NewServiceClientSync)  # sync
    ```
 
 No SDK changes are required -- the generic handler and client factories work with any generated service.
