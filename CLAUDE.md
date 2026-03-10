@@ -4,7 +4,7 @@
 
 **Signature verification and signing MUST use raw payload bytes.**
 
-Protobuf encoding is not canonical — re-encoding a deserialized message produces different bytes. Always verify/sign against the original wire bytes, never re-serialized output. The ASGI middleware intercepts raw body bytes BEFORE ConnectRPC deserializes them.
+Protobuf encoding is not canonical — re-encoding a deserialized message produces different bytes. Always verify/sign against the original wire bytes, never re-serialized output. The ASGI/WSGI middleware intercepts raw body bytes BEFORE ConnectRPC deserializes them.
 
 ```python
 # WRONG — re-encoded bytes will differ
@@ -50,7 +50,9 @@ provider-python/
 └── tests/
     └── cross_test/             # Go interop tests (one-time validation)
         ├── go_helper/          # Small Go binary for cross-testing
-        └── test_cross_signature.py
+        ├── test_cross_signature.py   # Crypto interop (hash, sign, verify)
+        ├── test_cross_server.py      # ASGI server-to-server
+        └── test_cross_server_sync.py # WSGI server-to-server
 ```
 
 ## Key Dependencies
@@ -98,7 +100,7 @@ cd tests/cross_test/go_helper && go build -o go_helper . && cd ../../..
 uv run pytest tests/cross_test/ -v
 ```
 
-Validates: Keccak256 hash, public key derivation, Python→Go signature verification, Go→Python signature verification.
+Validates: Keccak256 hash, public key derivation, bidirectional signature verification, and end-to-end server-to-server communication (both ASGI and WSGI).
 
 ## Architecture (Go SDK Mapping)
 
@@ -111,16 +113,16 @@ Validates: Keccak256 hash, public key derivation, Python→Go signature verifica
 | `common/header.go` | `common/headers.py` |
 | `network/signing_transport.go` | `network/signing.py` |
 | `network/client.go` | `network/client.py` |
-| `provider/verify_signature.go` | `provider/middleware.py` |
+| `provider/verify_signature.go` | `provider/middleware.py` (ASGI), `provider/middleware_wsgi.py` (WSGI) |
 | `provider/signature_error.go` | `provider/interceptor.py` |
 | `provider/handler.go` | `provider/handler.py` |
 
 ## Architectural Invariants
 
 - **Raw bytes:** Signature verification and signing always use original wire bytes, never re-serialized protobuf (see critical requirement above)
-- **Two-phase verification:** ASGI middleware (raw bytes) → `contextvars.ContextVar` → ConnectRPC interceptor (error codes). Do not collapse into a single layer.
+- **Two-phase verification:** ASGI/WSGI middleware (raw bytes) → `contextvars.ContextVar` → ConnectRPC interceptor (error codes). Do not collapse into a single layer.
 - **Wrapper pattern:** `SigningClient` wraps `pyqwest.Client` via delegation (not subclass). pyqwest is Rust-backed FFI — subclassing is undefined.
-- **Proto-agnostic:** `handler()` and `new_service_client()` accept any generated ConnectRPC class. Do not add service-specific logic to these functions.
+- **Proto-agnostic:** `handler()`/`handler_sync()` and `new_service_client()`/`new_service_client_sync()` accept any generated ConnectRPC class. Do not add service-specific logic to these functions.
 
 ## Signature Protocol Quick Reference
 
@@ -154,7 +156,7 @@ SigningClient, SigningSyncClient, new_service_client, new_service_client_sync,
 DEFAULT_BASE_URL, DEFAULT_TIMEOUT
 
 # provider/
-handler, new_asgi_app, HandlerOption, BuildHandler,
+handler, handler_sync, new_asgi_app, new_wsgi_app, HandlerOption, BuildHandler, BuildHandlerSync,
 SignatureVerificationError, MissingRequiredHeaderError, InvalidHeaderEncodingError,
 TimestampOutOfRangeError, UnknownPublicKeyError, SignatureFailedError
 ```

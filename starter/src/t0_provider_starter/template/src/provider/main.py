@@ -4,6 +4,31 @@ Go equivalent: cmd/main.go → main()
 
 Initializes the network client, starts the provider server,
 and manages quote publishing and retrieval.
+
+--- WSGI alternative ---
+To use a synchronous WSGI server (e.g. gunicorn) instead of ASGI/uvicorn,
+swap the following imports and use the sync variants:
+
+    # Replace async imports:
+    #   from t0_provider_sdk.api.tzero.v1.payment.provider_connect import ProviderServiceASGIApplication
+    #   from t0_provider_sdk.network.client import new_service_client
+    #   from t0_provider_sdk.provider.handler import handler, new_asgi_app
+    # With sync imports:
+    #   from t0_provider_sdk.api.tzero.v1.payment.provider_connect import ProviderServiceWSGIApplication
+    #   from t0_provider_sdk.api.tzero.v1.payment.network_connect import NetworkServiceClientSync
+    #   from t0_provider_sdk.network.client import new_service_client_sync
+    #   from t0_provider_sdk.provider.handler import handler_sync, new_wsgi_app
+
+    # Use the sync handler implementation:
+    #   from provider.handler.payment_sync import ProviderServiceSyncImplementation
+
+    # Build the WSGI app:
+    #   network_client = new_service_client_sync(private_key, NetworkServiceClientSync, base_url=...)
+    #   service = ProviderServiceSyncImplementation(network_client)
+    #   app = new_wsgi_app(network_public_key, handler_sync(ProviderServiceWSGIApplication, service))
+
+    # Run with gunicorn (from command line):
+    #   gunicorn provider.main:wsgi_app --bind 0.0.0.0:8080
 """
 
 from __future__ import annotations

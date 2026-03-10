@@ -2,7 +2,7 @@
 
 Python SDK and project initializer for building T-0 Network payment providers. The repository contains two packages:
 
-- **t0-provider-sdk** -- SDK providing ConnectRPC communication, secp256k1 cryptographic signing/verification, and ASGI middleware for signature validation.
+- **t0-provider-sdk** -- SDK providing ConnectRPC communication, secp256k1 cryptographic signing/verification, and ASGI/WSGI middleware for signature validation.
 - **t0-provider-starter** -- CLI tool that scaffolds a complete provider project with sensible defaults.
 
 ## Prerequisites
@@ -42,6 +42,8 @@ Python SDK and project initializer for building T-0 Network payment providers. T
    uv run python -m provider.main
    ```
 
+   The generated project uses an async ASGI server (uvicorn) by default. See [WSGI Alternative](#wsgi-alternative) below if you prefer a synchronous server.
+
 5. **Share your public key** (printed during project initialization) with the T-0 team.
 
 ## CLI Options
@@ -73,10 +75,11 @@ my_provider/
     ├── get_quote.py            # Sample quote retrieval
     └── handler/
         ├── __init__.py
-        └── payment.py          # ProviderServiceImplementation (5 RPC methods)
+        ├── payment.py          # ProviderServiceImplementation (async, 5 RPC methods)
+        └── payment_sync.py     # ProviderServiceSyncImplementation (sync/WSGI variant)
 ```
 
-The primary file to modify is `src/provider/handler/payment.py`, which contains stub implementations for all provider RPC methods.
+The primary file to modify is `src/provider/handler/payment.py` (async) or `src/provider/handler/payment_sync.py` (sync/WSGI), which contain stub implementations for all provider RPC methods.
 
 ## Environment Variables
 
@@ -124,6 +127,31 @@ Additional optional methods in `src/provider/handler/payment.py`:
 - `append_ledger_entries` -- handle notifications about ledger transactions
 - `approve_payment_quotes` -- approve quotes after AML check
 
+### WSGI Alternative
+
+The default generated project uses async ASGI (uvicorn). If you prefer a synchronous WSGI server (e.g. gunicorn, waitress), replace the ASGI setup in `src/provider/main.py`:
+
+```python
+from t0_provider_sdk.api.tzero.v1.payment.provider_connect import ProviderServiceWSGIApplication
+from t0_provider_sdk.provider import handler_sync, new_wsgi_app
+from provider.handler.payment_sync import ProviderServiceSyncImplementation
+
+def create_provider_app(config, network_client_sync):
+    service = ProviderServiceSyncImplementation(network_client_sync)
+    return new_wsgi_app(
+        config.network_public_key,
+        handler_sync(ProviderServiceWSGIApplication, service),
+    )
+```
+
+Then run with a WSGI server:
+
+```bash
+gunicorn provider.main:app --bind 0.0.0.0:8080
+```
+
+The sync variant uses `payment_sync.py` instead of `payment.py` -- implement the same RPC methods as regular `def` functions instead of `async def`.
+
 ## Available Commands
 
 Run these inside the generated project directory:
@@ -155,7 +183,7 @@ docker run --env-file .env -p 8080:8080 my-provider
 ## Security Considerations
 
 - **Private key protection:** `PROVIDER_PRIVATE_KEY` must never be committed to version control. Add `.env` to your `.gitignore`.
-- **Signature verification:** All inbound requests from the T-0 Network are verified against `NETWORK_PUBLIC_KEY` via ASGI middleware. Verification uses raw request body bytes, not re-serialized protobuf.
+- **Signature verification:** All inbound requests from the T-0 Network are verified against `NETWORK_PUBLIC_KEY` via ASGI or WSGI middleware. Verification uses raw request body bytes, not re-serialized protobuf.
 - **Timestamp validation:** Request timestamps must be within +/- 60 seconds of server time. Keep system clocks synchronized.
 - **Body size limit:** Inbound request bodies are limited to 4 MB by default.
 
@@ -211,7 +239,9 @@ provider-python/
 ├── tests/
 │   └── cross_test/                 # Go SDK interop tests
 │       ├── go_helper/              # Go binary for cross-testing
-│       └── test_cross_signature.py
+│       ├── test_cross_signature.py # Crypto interop (hash, sign, verify)
+│       ├── test_cross_server.py    # ASGI server-to-server
+│       └── test_cross_server_sync.py # WSGI server-to-server
 └── docs/
     └── PITFALLS.md                 # Known issues and workarounds
 ```
@@ -237,7 +267,7 @@ uv run pytest tests/cross_test -v          # Go cross-tests (requires Go helper)
 
 #### Cross-Tests with Go SDK
 
-These tests validate interoperability between the Python and Go SDKs: Keccak256 hash equivalence, public key derivation, and bidirectional signature verification.
+These tests validate interoperability between the Python and Go SDKs: Keccak256 hash equivalence, public key derivation, bidirectional signature verification, and end-to-end server-to-server communication (both ASGI and WSGI).
 
 ```bash
 cd tests/cross_test/go_helper && go build -o go_helper . && cd ../../..
@@ -280,7 +310,7 @@ Reference for porting changes from the Go SDK:
 | `common/header.go` | `sdk/src/t0_provider_sdk/common/headers.py` |
 | `network/signing_transport.go` | `sdk/src/t0_provider_sdk/network/signing.py` |
 | `network/client.go` | `sdk/src/t0_provider_sdk/network/client.py` |
-| `provider/verify_signature.go` | `sdk/src/t0_provider_sdk/provider/middleware.py` |
+| `provider/verify_signature.go` | `sdk/src/t0_provider_sdk/provider/middleware.py` (ASGI), `middleware_wsgi.py` (WSGI) |
 | `provider/signature_error.go` | `sdk/src/t0_provider_sdk/provider/interceptor.py` |
 | `provider/handler.go` | `sdk/src/t0_provider_sdk/provider/handler.py` |
 

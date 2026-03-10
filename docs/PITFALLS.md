@@ -200,7 +200,7 @@ digest = keccak256(raw_body_bytes + timestamp_bytes)
 verify_signature(pub_key, digest, sig)
 ```
 
-The ASGI middleware intercepts raw body bytes from `receive()` BEFORE ConnectRPC deserializes them. This is by design — never re-serialize for signature operations.
+The ASGI middleware intercepts raw body bytes from `receive()` and the WSGI middleware reads from `environ["wsgi.input"]` BEFORE ConnectRPC deserializes them. This is by design — never re-serialize for signature operations.
 
 ---
 
@@ -276,6 +276,44 @@ cd sdk && buf generate --include-imports
 ```
 
 Must also create `__init__.py` files for generated namespace packages (`api/buf/__init__.py`, `api/buf/validate/__init__.py`).
+
+---
+
+## 13. WSGI Body Replay: Must Replace `wsgi.input`
+
+WSGI middleware that reads `environ["wsgi.input"]` consumes the stream — the downstream app gets an empty body. After reading, you must replace `wsgi.input` with a `BytesIO` and update `CONTENT_LENGTH`.
+
+```python
+# WRONG — downstream app gets empty body
+body = environ["wsgi.input"].read()
+# ... verify signature ...
+return app(environ, start_response)  # app reads empty stream
+
+# CORRECT — replay body via BytesIO
+body = environ["wsgi.input"].read()
+# ... verify signature ...
+environ["wsgi.input"] = io.BytesIO(body)
+environ["CONTENT_LENGTH"] = str(len(body))
+return app(environ, start_response)
+```
+
+The WSGI middleware (`middleware_wsgi.py`) handles this automatically. This is the WSGI equivalent of the ASGI `_replay_receive()` pattern.
+
+---
+
+## 14. WSGI Headers: `HTTP_` Prefix in `environ`
+
+WSGI stores HTTP headers with a `HTTP_` prefix and underscores instead of hyphens: `X-Public-Key` becomes `HTTP_X_PUBLIC_KEY`. `Content-Type` and `Content-Length` are special cases with no prefix.
+
+```python
+# WRONG — looking for the header directly
+pub_key = environ.get("X-Public-Key")  # None
+
+# CORRECT — WSGI format
+pub_key = environ.get("HTTP_X_PUBLIC_KEY")
+```
+
+The `_parse_wsgi_headers()` function in `middleware_wsgi.py` converts all `HTTP_*` keys to lowercase-hyphenated format for compatibility with the shared `_verify_request()` logic.
 
 ---
 
