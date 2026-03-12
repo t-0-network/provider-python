@@ -1,3 +1,13 @@
+# :warning: DEPRECATED
+
+> **This repository has been deprecated.** All development has moved to the unified Provider SDK monorepo.
+>
+> **Please use [t-0-network/provider-sdk](https://github.com/t-0-network/provider-sdk) instead.**
+>
+> This repository is no longer maintained and will be archived.
+
+---
+
 # T-0 Network Provider SDK for Python
 
 Python SDK and project initializer for building T-0 Network payment providers. The repository contains two packages:
